@@ -3,6 +3,8 @@ from gym import spaces
 from ple import PLE
 import numpy as np
 
+from PIL import Image
+
 class PLEEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
@@ -17,7 +19,13 @@ class PLEEnv(gym.Env):
         self._action_set = self.game_state.getActionSet()
         self.action_space = spaces.Discrete(len(self._action_set))
         self.screen_width, self.screen_height = self.game_state.getScreenDims()
-        self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_width, self.screen_height, 3))
+        if self.screen_height+self.screen_width > 500:
+            img_scale = 0.25
+        else:
+            img_scale = 1.0
+        self.screen_width = int(self.screen_width*img_scale)
+        self.screen_height = int(self.screen_height*img_scale)
+        self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_height, self.screen_width, 3))
         self.viewer = None
 
 
@@ -27,18 +35,23 @@ class PLEEnv(gym.Env):
         terminal = self.game_state.game_over()
         return state, reward, terminal, {}
 
+    def _resize_frame(self, frame):
+        pil_image = Image.fromarray(frame)
+        pil_image = pil_image.resize((self.screen_width, self.screen_height), Image.ANTIALIAS)
+        return  np.array(pil_image)
+
     def _get_image(self):
-        image_rotated = np.fliplr(np.rot90(self.game_state.getScreenRGB(),3)) # Hack to fix the rotated image returned by ple
-        return image_rotated
+        image_rotated = np.fliplr(np.rot90(self.game_state.getScreenRGB(), 3)) # Hack to fix the rotated image returned by ple
+        return self._resize_frame(image_rotated)
 
     @property
     def _n_actions(self):
         return len(self._action_set)
 
     # return: (states, observations)
-    def _reset(self):
-        self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_width, self.screen_height, 3))
-        self.game_state.reset_game()
+    def _reset(self, **kwargs):
+        self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_height, self.screen_width, 3))
+        self.game_state.reset_game(**kwargs)
         state = self._get_image()
         return state
 
