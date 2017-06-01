@@ -5,16 +5,23 @@ import numpy as np
 
 from PIL import Image
 
+
+def state_preprocessor(game_dict):
+    _, values = zip(*sorted(list(game_dict.items())))
+    state = np.array(values)
+    return state
+
+
 class PLEEnv(gym.Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, game_name='FlappyBird', display_screen=True):
+    def __init__(self, game_name='FlappyBird', display_screen=True, observe_state=False):
         # open up a game state to communicate with emulator
         import importlib
         game_module_name = ('ple.games.%s' % game_name).lower()
         game_module = importlib.import_module(game_module_name)
         game = getattr(game_module, game_name)()
-        self.game_state = PLE(game, fps=30, display_screen=display_screen)
+        self.game_state = PLE(game, fps=30, display_screen=display_screen, state_preprocessor=state_preprocessor)
         self.game_state.init()
         self._action_set = self.game_state.getActionSet()
         self.action_space = spaces.Discrete(len(self._action_set))
@@ -25,13 +32,20 @@ class PLEEnv(gym.Env):
             img_scale = 1.0
         self.screen_width = int(self.screen_width*img_scale)
         self.screen_height = int(self.screen_height*img_scale)
-        self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_height, self.screen_width, 3))
+        self.observe_state = observe_state
+        if self.observe_state:
+            # the bounds are typically not infinity
+            self.observation_space = spaces.Box(low=-float('inf'), high=float('inf'), shape=self.game_state.state_dim)
+        else:
+            self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_height, self.screen_width, 3))
         self.viewer = None
-
 
     def _step(self, a):
         reward = self.game_state.act(self._action_set[a])
-        state = self._get_image()
+        if self.observe_state:
+            state = self.game_state.getGameState()
+        else:
+            state = self._get_image()
         terminal = self.game_state.game_over()
         return state, reward, terminal, {}
 
@@ -52,7 +66,10 @@ class PLEEnv(gym.Env):
     def _reset(self, **kwargs):
         self.observation_space = spaces.Box(low=0, high=255, shape=(self.screen_height, self.screen_width, 3))
         self.game_state.reset_game(**kwargs)
-        state = self._get_image()
+        if self.observe_state:
+            state = self.game_state.getGameState()
+        else:
+            state = self._get_image()
         return state
 
     def _render(self, mode='human', close=False):
@@ -69,7 +86,6 @@ class PLEEnv(gym.Env):
             if self.viewer is None:
                 self.viewer = rendering.SimpleImageViewer()
             self.viewer.imshow(img)
-
 
     def _seed(self, seed):
         rng = np.random.RandomState(seed)
